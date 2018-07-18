@@ -5,6 +5,43 @@ import os
 import tempfile
 import time
 
+import pyTycho
+
+imgname = idc.get_input_file_path().split(os.path.sep)[-1]
+service = None
+proc = None
+
+
+def initialize_tycho():
+    global service, proc
+    print("initializing tycho")
+    service = pyTycho.Tycho()
+    print("opening process with image %s" % imgname)
+    proc = service.open_process(imgname)
+    proc.pause()
+    while not proc.is_running():
+        time.sleep(1)
+        print("waiting for process")
+    # inject_pagefaults()
+    proc.launch_gdb_stub(4141, 64)
+
+def inject_pagefault(va):
+    print("injecting pagefault at %x" % va)
+    proc.get_thread_list()
+    proc.inject_pagefault(va, 0x4)
+
+def inject_pagefaults():
+    proc.get_thread_list()
+    vad = proc.get_vad_list()
+    for node in vad:
+        va_start = node.start_vpn * 0x1000
+        va_end = node.end_vpn * 0x1000
+        for page_start in range(va_start, va_end, 0x1000):
+            if not proc.inject_pagefault(page_start, 0x4):
+                print("could not inject pagefault at %x" % page_start)
+            else:
+                print("injected pagefault at %x" % va)
+
 def find_references(funcname):
     referenced_locations = []
     func_ea = idc.LocByName(funcname)
@@ -84,10 +121,10 @@ def enable_bp_ret(funcname):
     bps = []
     for ea in idautils.FuncItems(func_ea):
         if idc.GetMnem(ea) == "retn":
+            inject_pagefault(ea)
             idc.add_bpt(ea)
             bps.append(ea)
     return bps
-
 
 class IDADbgHookDump(idaapi.DBG_Hooks):
 
@@ -95,6 +132,12 @@ class IDADbgHookDump(idaapi.DBG_Hooks):
         idaapi.DBG_Hooks.__init__(self)
         self.hooks = hook_info
         self.dumpdir = tempfile.mkdtemp(prefix="idaextutil_dump")
+
+    def dbg_process_attach(self,  pid, tid, ea, modinfo_name, modinfo_base, modinfo_size):
+        for funcname in self.hooks:
+            for ea in self.hooks[funcname]["bp"]:
+                inject_pagefault(ea)
+
 
     def dbg_bpt(self, tid, ea):
         f_ea = idc.get_func_attr(ea, 0)
@@ -110,8 +153,10 @@ class IDADbgHookDump(idaapi.DBG_Hooks):
         if not ea in self.hooks[funcname]["bp"]:
             return 0
         """
+        # inject_pagefaults()
         for name in self.hooks[funcname]["buffer"]:
             ea_buffer = idc.get_name_ea_simple(name)
+            inject_pagefault(ea_buffer)
             data = get_bytes(ea_buffer, 0x1000)
             print("dumping %s" % name)
             print("%s" % [ "%02x" % ord(b) for b in data[:0x40] ])
@@ -130,6 +175,7 @@ dbg_hook = None
 def install_dbg_hook_dump(hooks):
     global dbg_hook
     bps = dict()
+    # inject_pagefaults()
     for function in hooks:
         bps[function] = dict()
         bps[function]["bp"] = enable_bp_ret(function)
@@ -153,4 +199,14 @@ def get_hooks(functions):
     for func in functions:
         hooks[func] = find_references_writable_data(func)
     return hooks
+
+def run():
+    print("starting (%s) ..." % imgname)
+    initialize_tycho()
+    # functions = [ "_Z13do_some_stuffPc" ]
+    functions = [ idc.get_name(f) for f in idautils.Functions() ]
+    hooks = get_hooks(functions)
+    install_dbg_hook_dump(hooks)
+
+
 

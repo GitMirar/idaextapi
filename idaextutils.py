@@ -106,8 +106,10 @@ class IDADbgHookDump(idaapi.DBG_Hooks):
             return 0
         if not funcname in self.hooks:
             return 0
+        """
         if not ea in self.hooks[funcname]["bp"]:
             return 0
+        """
         for name in self.hooks[funcname]["buffer"]:
             ea_buffer = idc.get_name_ea_simple(name)
             data = get_bytes(ea_buffer, 0x1000)

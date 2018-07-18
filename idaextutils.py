@@ -134,6 +134,7 @@ class IDADbgHookDump(idaapi.DBG_Hooks):
         self.dumpdir = tempfile.mkdtemp(prefix="idaextutil_dump")
 
     def dbg_process_attach(self,  pid, tid, ea, modinfo_name, modinfo_base, modinfo_size):
+        inject_pagefault(ea)
         for funcname in self.hooks:
             for ea in self.hooks[funcname]["bp"]:
                 inject_pagefault(ea)

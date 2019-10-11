@@ -1,9 +1,25 @@
 import idc
 import idautils
 import idaapi
+import ida_bytes
+import ida_segment
 import os
 import tempfile
 import time
+
+
+def write_segment(va_start, va_end, segm_name, data):
+    ida_segment.add_segm(0, va_start, va_end, segm_name, None, 0xe)
+    va = va_start
+    for b in data:
+        ida_bytes.patch_byte(va, ord(b))
+        va += 1
+    print("wrote 0x%x bytes to 0x%x [%s]" % (len(data), va_start, segm_name))
+
+def dump_segment(segm_name, from_debugger=True):
+    segm = ida_segment.get_segm_by_name(segm_name)
+    data_length = segm.end_ea - segm.start_ea
+    return ida_bytes.get_bytes(segm.start_ea, data_length, from_debugger)
 
 def find_references(funcname):
     referenced_locations = []
